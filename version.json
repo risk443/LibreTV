@@ -1,6 +1,8 @@
 {
-  "version": "2026.06.08.3",
-  "build": "20260608-sheep-fox-cover-1",
+  "version": "2026.06.08.4",
+  "build": "20260608-force-update-prompt-1",
+  "promptId": "sheep-fox-cover-force-20260608-1",
+  "forcePrompt": true,
   "title": "更新可用",
   "message": "雪雪的观影小屋换上了羊羊和小狐狸的新封面，点击立即更新即可看到最新版。",
   "notes": [

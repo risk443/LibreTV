@@ -2,6 +2,7 @@
     const VERSION_URL = '/version.json';
     const STORAGE_KEY = 'xueAppWebVersion';
     const DISMISSED_KEY = 'xueAppDismissedVersion';
+    const PROMPTED_KEY = 'xueAppPromptedUpdateId';
 
     function injectUpdateStyles() {
         if (document.getElementById('xue-update-style')) return;
@@ -121,6 +122,7 @@
             button.textContent = '更新中...';
         }
         localStorage.removeItem(DISMISSED_KEY);
+        if (versionInfo.promptId) localStorage.setItem(PROMPTED_KEY, versionInfo.promptId);
         setCurrentVersion(versionInfo.version);
         await clearWebCache();
         const cleanUrl = new URL(window.location.href);
@@ -149,6 +151,7 @@
         document.body.appendChild(backdrop);
         backdrop.querySelector('.xue-update-later').addEventListener('click', () => {
             localStorage.setItem(DISMISSED_KEY, versionInfo.version || 'unknown');
+            if (versionInfo.promptId) localStorage.setItem(PROMPTED_KEY, versionInfo.promptId);
             backdrop.remove();
         });
         backdrop.querySelector('.xue-update-now').addEventListener('click', () => applyUpdate(versionInfo));
@@ -171,19 +174,23 @@
         try {
             const versionInfo = await fetchSiteVersion();
             const latestVersion = versionInfo.version || '';
+            const promptId = versionInfo.promptId || versionInfo.build || latestVersion;
             const storedVersion = currentStoredVersion();
             const dismissedVersion = localStorage.getItem(DISMISSED_KEY) || '';
+            const promptedId = localStorage.getItem(PROMPTED_KEY) || '';
+            const shouldForcePrompt = Boolean(versionInfo.forcePrompt && promptId && promptedId !== promptId);
 
-            if (!storedVersion && latestVersion) {
+            if (!storedVersion && latestVersion && !shouldForcePrompt) {
                 setCurrentVersion(latestVersion);
                 displayVersionElement(versionInfo, false);
                 return;
             }
 
             const hasUpdate = Boolean(latestVersion && storedVersion && latestVersion !== storedVersion);
-            displayVersionElement(versionInfo, hasUpdate);
+            const shouldShowPrompt = (hasUpdate && dismissedVersion !== latestVersion) || shouldForcePrompt;
+            displayVersionElement(versionInfo, hasUpdate || shouldForcePrompt);
 
-            if (hasUpdate && dismissedVersion !== latestVersion) {
+            if (shouldShowPrompt) {
                 setTimeout(() => showUpdateDialog(versionInfo), 600);
             }
         } catch (error) {
