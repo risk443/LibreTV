@@ -23,10 +23,40 @@ async function sha256Hex(text) {
   return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function storageRequest(key) {
+  return new Request(`https://libretv-online.local/${encodeURIComponent(key)}`);
+}
+
+function createStorage(env) {
+  const kv = env.LIBRETV_PROXY_KV;
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
+  return {
+    mode: kv ? 'kv' : 'cache',
+    async get(key) {
+      if (kv) return kv.get(key);
+      if (!cache) return null;
+      const response = await cache.match(storageRequest(key));
+      return response ? response.text() : null;
+    },
+    async put(key, value, options = {}) {
+      if (kv) return kv.put(key, value, options);
+      if (!cache) return;
+      const ttl = options.expirationTtl || ONLINE_TTL_SECONDS;
+      await cache.put(storageRequest(key), new Response(value, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': `public, max-age=${ttl}`
+        }
+      }));
+    }
+  };
+}
+
 function parseUserAgent(userAgent) {
   const ua = userAgent || '';
-  const os = ua.match(/Android\s+([\d.]+)/i)
-    ? `Android ${ua.match(/Android\s+([\d.]+)/i)[1]}`
+  const android = ua.match(/Android\s+([\d.]+)/i);
+  const os = android
+    ? `Android ${android[1]}`
     : ua.includes('iPhone') || ua.includes('iPad')
       ? 'iOS'
       : ua.includes('Windows')
@@ -49,7 +79,6 @@ function parseUserAgent(userAgent) {
 
   const deviceMatch = ua.match(/;\s*([^;()]+\sBuild\/[^;)]+)/i);
   const device = deviceMatch ? deviceMatch[1].replace(/\sBuild\/.*/, '').trim() : '未知设备';
-
   return { os, browser, device };
 }
 
@@ -72,8 +101,8 @@ async function deviceIdFromRequest(request, body) {
   return await sha256Hex(`${clientId}|${ip}|${userAgent}`);
 }
 
-async function getIndex(kv) {
-  const raw = await kv.get(ONLINE_INDEX_KEY);
+async function getIndex(storage) {
+  const raw = await storage.get(ONLINE_INDEX_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -83,15 +112,14 @@ async function getIndex(kv) {
   }
 }
 
-async function putIndex(kv, ids) {
+async function putIndex(storage, ids) {
   const unique = [...new Set(ids)].slice(0, MAX_DEVICES);
-  await kv.put(ONLINE_INDEX_KEY, JSON.stringify(unique), { expirationTtl: 86400 });
+  await storage.put(ONLINE_INDEX_KEY, JSON.stringify(unique), { expirationTtl: 86400 });
 }
 
 async function handleHeartbeat(context) {
   const { request, env } = context;
-  const kv = env.LIBRETV_PROXY_KV;
-  if (!kv) return jsonResponse({ ok: false, error: '未绑定 LIBRETV_PROXY_KV' }, 500);
+  const storage = createStorage(env);
 
   let body = {};
   try {
@@ -104,7 +132,7 @@ async function handleHeartbeat(context) {
   const userAgent = request.headers.get('user-agent') || '';
   const parsed = parseUserAgent(userAgent);
   const id = await deviceIdFromRequest(request, body);
-  const existingRaw = await kv.get(`${ONLINE_KEY_PREFIX}${id}`);
+  const existingRaw = await storage.get(`${ONLINE_KEY_PREFIX}${id}`);
   let existing = {};
   try {
     existing = existingRaw ? JSON.parse(existingRaw) : {};
@@ -132,18 +160,16 @@ async function handleHeartbeat(context) {
     online: true
   };
 
-  await kv.put(`${ONLINE_KEY_PREFIX}${id}`, JSON.stringify(record), { expirationTtl: ONLINE_TTL_SECONDS });
-  const index = await getIndex(kv);
-  await putIndex(kv, [id, ...index]);
+  await storage.put(`${ONLINE_KEY_PREFIX}${id}`, JSON.stringify(record), { expirationTtl: ONLINE_TTL_SECONDS });
+  const index = await getIndex(storage);
+  await putIndex(storage, [id, ...index]);
 
-  return jsonResponse({ ok: true, id, serverTime: now, ttl: ONLINE_TTL_SECONDS });
+  return jsonResponse({ ok: true, id, serverTime: now, ttl: ONLINE_TTL_SECONDS, storage: storage.mode });
 }
 
 async function handleList(context) {
   const { request, env } = context;
-  const kv = env.LIBRETV_PROXY_KV;
-  if (!kv) return jsonResponse({ ok: false, error: '未绑定 LIBRETV_PROXY_KV' }, 500);
-
+  const storage = createStorage(env);
   const adminPassword = env.ADMIN_PASSWORD || env.PASSWORD || '';
   const provided = request.headers.get('x-admin-password') || new URL(request.url).searchParams.get('password') || '';
   if (adminPassword && provided !== adminPassword) {
@@ -151,12 +177,12 @@ async function handleList(context) {
   }
 
   const now = Date.now();
-  const index = await getIndex(kv);
+  const index = await getIndex(storage);
   const records = [];
   const aliveIds = [];
 
   for (const id of index) {
-    const raw = await kv.get(`${ONLINE_KEY_PREFIX}${id}`);
+    const raw = await storage.get(`${ONLINE_KEY_PREFIX}${id}`);
     if (!raw) continue;
     try {
       const record = JSON.parse(raw);
@@ -167,11 +193,12 @@ async function handleList(context) {
     } catch {}
   }
 
-  await putIndex(kv, aliveIds);
+  await putIndex(storage, aliveIds);
   records.sort((a, b) => b.lastSeen - a.lastSeen);
 
   return jsonResponse({
     ok: true,
+    storage: storage.mode,
     serverTime: now,
     onlineWindowSeconds: Math.round(ONLINE_WINDOW_MS / 1000),
     onlineCount: records.filter(record => record.online).length,
