@@ -1261,6 +1261,8 @@ function saveCurrentProgress() {
                         history[idx].duration = duration;
                         history[idx].timestamp = Date.now();
                         localStorage.setItem('viewingHistory', JSON.stringify(history));
+                        if (typeof renderWatchlistPanel === 'function') renderWatchlistPanel();
+                        if (typeof renderHomeWatchShelf === 'function') renderHomeWatchShelf();
                     }
                 }
             }

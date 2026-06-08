@@ -1,5 +1,7 @@
 // 全局变量
-let selectedAPIs = JSON.parse(localStorage.getItem('selectedAPIs') || '["tyyszy","dyttzy", "bfzy", "ruyi"]'); // 默认选中资源
+const SOURCE_CONFIG_VERSION = '2026-06-08-playable-home-v3';
+const getDefaultSelectedAPIs = () => Object.keys(window.API_SITES || {}).filter(apiKey => !window.API_SITES[apiKey].adult && !window.API_SITES[apiKey].disabledByDefault);
+let selectedAPIs = JSON.parse(localStorage.getItem('selectedAPIs') || '[]'); // 选中资源
 let customAPIs = JSON.parse(localStorage.getItem('customAPIs') || '[]'); // 存储自定义API列表
 
 // 添加当前播放的集数索引
@@ -25,11 +27,14 @@ document.addEventListener('DOMContentLoaded', function () {
     // 渲染搜索历史
     renderSearchHistory();
 
-    // 设置默认API选择（如果是第一次加载）
-    if (!localStorage.getItem('hasInitializedDefaults')) {
-        // 默认选中资源
-        selectedAPIs = ["tyyszy", "bfzy", "dyttzy", "ruyi"];
+    // 设置默认API选择（首次加载或源列表升级时）
+    const availableApiKeys = Object.keys(API_SITES || {});
+    const savedSourceVersion = localStorage.getItem('sourceConfigVersion');
+    const hasValidSelectedApis = selectedAPIs.some(apiKey => availableApiKeys.includes(apiKey));
+    if (savedSourceVersion !== SOURCE_CONFIG_VERSION || !hasValidSelectedApis) {
+        selectedAPIs = getDefaultSelectedAPIs();
         localStorage.setItem('selectedAPIs', JSON.stringify(selectedAPIs));
+        localStorage.setItem('sourceConfigVersion', SOURCE_CONFIG_VERSION);
 
         // 默认选中过滤开关
         localStorage.setItem('yellowFilterEnabled', 'true');
@@ -754,7 +759,7 @@ async function search() {
                         <div class="relative flex-shrink-0 search-card-img-container">
                             <img src="${item.vod_pic}" alt="${safeName}" 
                                  class="h-full w-full object-cover transition-transform hover:scale-110" 
-                                 onerror="this.onerror=null; this.src='https://via.placeholder.com/300x450?text=无封面'; this.classList.add('object-contain');" 
+                                 onerror="this.onerror=null; this.src='image/logo.png'; this.classList.add('object-contain', 'p-6');" 
                                  loading="lazy">
                             <div class="absolute inset-0 bg-gradient-to-r from-black/30 to-transparent"></div>
                         </div>` : ''}
@@ -947,6 +952,21 @@ async function showDetails(id, vod_name, sourceCode) {
             currentEpisodes = data.episodes;
             currentEpisodeIndex = 0;
 
+            const favoriteItem = {
+                title: vod_name || '未知视频',
+                url: '',
+                directVideoUrl: data.episodes[0] || '',
+                episodeIndex: 0,
+                sourceName: data.videoInfo && data.videoInfo.source_name ? data.videoInfo.source_name : sourceCode,
+                sourceCode,
+                vod_id: id,
+                showIdentifier: `${sourceCode}_${id}`,
+                episodes: data.episodes,
+                timestamp: Date.now()
+            };
+            const favoritePayload = encodeURIComponent(JSON.stringify(favoriteItem)).replace(/'/g, '%27');
+            const favoriteActive = typeof isFavoriteVideo === 'function' && isFavoriteVideo(favoriteItem);
+
             modalContent.innerHTML = `
                 ${detailInfoHtml}
                 <div class="flex flex-wrap items-center justify-between mb-4 gap-2">
@@ -960,9 +980,14 @@ async function showDetails(id, vod_name, sourceCode) {
                         </button>
                         <span class="text-gray-400 text-sm">共 ${data.episodes.length} 集</span>
                     </div>
-                    <button onclick="copyLinks()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors">
-                        复制链接
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button id="favoriteDetailButton" onclick="toggleDetailFavorite('${favoritePayload}')" class="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded text-sm transition-colors">
+                            ${favoriteActive ? '已收藏' : '收藏'}
+                        </button>
+                        <button onclick="copyLinks()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors">
+                            复制链接
+                        </button>
+                    </div>
                 </div>
                 <div id="episodesGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
                     ${renderEpisodes(vod_name, sourceCode, id)}
@@ -983,6 +1008,21 @@ async function showDetails(id, vod_name, sourceCode) {
         showToast('获取详情失败，请稍后重试', 'error');
     } finally {
         hideLoading();
+    }
+}
+
+function toggleDetailFavorite(encodedPayload) {
+    if (typeof toggleFavoriteVideo !== 'function') return;
+    try {
+        const item = JSON.parse(decodeURIComponent(encodedPayload));
+        const added = toggleFavoriteVideo(item);
+        const button = document.getElementById('favoriteDetailButton');
+        if (button) button.textContent = added ? '已收藏' : '收藏';
+        if (typeof renderHomeWatchShelf === 'function') renderHomeWatchShelf();
+        if (typeof renderWatchlistPanel === 'function') renderWatchlistPanel();
+        showToast(added ? '已加入收藏' : '已取消收藏', 'success');
+    } catch (error) {
+        showToast('收藏失败，请稍后重试', 'error');
     }
 }
 

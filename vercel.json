@@ -1,4 +1,9 @@
 {
+  "version": 2,
+  "framework": null,
+  "installCommand": "npm install",
+  "buildCommand": null,
+  "outputDirectory": ".",
   "rewrites": [
     {
       "source": "/proxy/:path*",
