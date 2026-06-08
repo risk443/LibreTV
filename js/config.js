@@ -16,8 +16,8 @@ const SITE_CONFIG = {
     name: 'LibreTV',
     url: 'https://libretv.is-an.org',
     description: '免费在线视频搜索与观看平台',
-    logo: 'image/logo.png',
-    version: '1.0.3'
+    logo: 'image/app-cover-sheep-fox.jpg',
+    version: '1.0.4'
 };
 
 // API站点配置
