@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>雪雪的观影小屋 - 在线设备后台</title>
+  <meta name="robots" content="noindex,nofollow">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #fff7ed;
+      background: radial-gradient(circle at top left, rgba(236,72,153,.22), transparent 34%), linear-gradient(135deg, #111827, #2a1422 58%, #3b1d13);
+    }
+    .wrap { width: min(1120px, calc(100vw - 28px)); margin: 0 auto; padding: 28px 0 44px; }
+    .hero {
+      display: flex; gap: 18px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+      padding: 22px; border: 1px solid rgba(255,255,255,.12); border-radius: 24px;
+      background: rgba(17,24,39,.68); box-shadow: 0 22px 70px rgba(0,0,0,.25); backdrop-filter: blur(12px);
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 36px); }
+    .muted { color: #d8b4c5; }
+    .login, .panel { margin-top: 18px; padding: 20px; border-radius: 22px; border: 1px solid rgba(255,255,255,.1); background: rgba(15,23,42,.72); }
+    .login { display: grid; gap: 12px; max-width: 520px; }
+    input, button { font: inherit; }
+    input {
+      width: 100%; padding: 13px 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.08); color: white; outline: none;
+    }
+    input:focus { border-color: #f472b6; box-shadow: 0 0 0 3px rgba(244,114,182,.18); }
+    button {
+      border: 0; border-radius: 999px; padding: 12px 16px; color: #fff; cursor: pointer; font-weight: 800;
+      background: linear-gradient(135deg, #ec4899, #f59e0b); box-shadow: 0 10px 28px rgba(236,72,153,.24);
+    }
+    button.secondary { background: rgba(255,255,255,.1); box-shadow: none; color: #ffe4ef; }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+    .stat { padding: 16px; border-radius: 18px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); }
+    .stat b { display: block; font-size: 30px; margin-top: 4px; }
+    .toolbar { display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .device-list { display: grid; gap: 12px; }
+    .card { padding: 16px; border-radius: 18px; background: rgba(255,255,255,.075); border: 1px solid rgba(255,255,255,.1); }
+    .card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .name { font-size: 18px; font-weight: 900; }
+    .badge { flex: none; padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 900; }
+    .online { background: rgba(34,197,94,.18); color: #86efac; border: 1px solid rgba(34,197,94,.28); }
+    .offline { background: rgba(148,163,184,.15); color: #cbd5e1; border: 1px solid rgba(148,163,184,.18); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin-top: 12px; color: #fbcfe8; font-size: 14px; }
+    .grid span { color: #fff7ed; word-break: break-all; }
+    .ua { margin-top: 10px; color: #cbd5e1; font-size: 12px; word-break: break-all; }
+    .hidden { display: none !important; }
+    .error { color: #fecaca; }
+    @media (max-width: 720px) { .stats, .grid { grid-template-columns: 1fr; } .card-head { flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <h1>在线设备后台</h1>
+        <div class="muted">查看当前打开“雪雪的观影小屋”的在线人数和手机信息</div>
+      </div>
+      <button class="secondary" id="logoutBtn">退出后台</button>
+    </section>
+
+    <section class="login" id="loginBox">
+      <strong>输入后台密码</strong>
+      <div class="muted">默认使用网站访问密码；如果配置了 ADMIN_PASSWORD，则使用后台专用密码。</div>
+      <input id="passwordInput" type="password" placeholder="后台密码" autocomplete="current-password">
+      <button id="loginBtn">进入后台</button>
+      <div class="error" id="loginError"></div>
+    </section>
+
+    <section class="panel hidden" id="panel">
+      <div class="stats">
+        <div class="stat"><span class="muted">在线人数</span><b id="onlineCount">0</b></div>
+        <div class="stat"><span class="muted">记录设备</span><b id="totalCount">0</b></div>
+        <div class="stat"><span class="muted">刷新时间</span><b id="refreshTime">--:--</b></div>
+      </div>
+      <div class="toolbar">
+        <div class="muted" id="statusText">每 10 秒自动刷新，2 分钟内活跃算在线。</div>
+        <button id="refreshBtn">立即刷新</button>
+      </div>
+      <div class="device-list" id="deviceList"></div>
+    </section>
+  </main>
+
+  <script>
+    const API_URL = '/api/online';
+    const TOKEN_KEY = 'xueAdminOnlinePassword';
+    const loginBox = document.getElementById('loginBox');
+    const panel = document.getElementById('panel');
+    const loginError = document.getElementById('loginError');
+    const passwordInput = document.getElementById('passwordInput');
+    const onlineCount = document.getElementById('onlineCount');
+    const totalCount = document.getElementById('totalCount');
+    const refreshTime = document.getElementById('refreshTime');
+    const statusText = document.getElementById('statusText');
+    const deviceList = document.getElementById('deviceList');
+    let timer = null;
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return '-';
+      return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function renderDevices(devices) {
+      if (!devices.length) {
+        deviceList.innerHTML = '<div class="card muted">还没有设备上报。打开手机 App 后等 5 秒再刷新。</div>';
+        return;
+      }
+      deviceList.innerHTML = devices.map(device => `
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <div class="name">${escapeHtml(device.name || device.device || '未知设备')}</div>
+              <div class="muted">ID：${escapeHtml(String(device.id || '').slice(0, 12))}</div>
+            </div>
+            <span class="badge ${device.online ? 'online' : 'offline'}">${device.online ? '在线' : '离线'} · ${device.lastSeenAgoSeconds || 0}s 前</span>
+          </div>
+          <div class="grid">
+            <div>设备：<span>${escapeHtml(device.device)}</span></div>
+            <div>系统：<span>${escapeHtml(device.os)}</span></div>
+            <div>浏览器：<span>${escapeHtml(device.browser)}</span></div>
+            <div>屏幕：<span>${escapeHtml(device.screen)}</span></div>
+            <div>位置：<span>${escapeHtml([device.country, device.city].filter(Boolean).join(' / ') || '-')}</span></div>
+            <div>IP：<span>${escapeHtml(device.ip || '-')}</span></div>
+            <div>当前页：<span>${escapeHtml(device.path || '/')}</span></div>
+            <div>首次打开：<span>${escapeHtml(formatTime(device.firstSeen))}</span></div>
+            <div>最近活跃：<span>${escapeHtml(formatTime(device.lastSeen))}</span></div>
+            <div>语言：<span>${escapeHtml(device.language || '-')}</span></div>
+          </div>
+          <div class="ua">UA：${escapeHtml(device.userAgent)}</div>
+        </article>
+      `).join('');
+    }
+
+    async function loadDevices() {
+      const password = localStorage.getItem(TOKEN_KEY) || '';
+      const response = await fetch(API_URL, { headers: { 'x-admin-password': password }, cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || '读取失败');
+      onlineCount.textContent = data.onlineCount;
+      totalCount.textContent = data.totalCount;
+      refreshTime.textContent = new Date(data.serverTime).toLocaleTimeString('zh-CN', { hour12: false });
+      statusText.textContent = `每 10 秒自动刷新，${data.onlineWindowSeconds} 秒内活跃算在线。`;
+      renderDevices(data.devices || []);
+    }
+
+    async function login() {
+      loginError.textContent = '';
+      const password = passwordInput.value.trim();
+      if (!password) {
+        loginError.textContent = '请输入密码';
+        return;
+      }
+      localStorage.setItem(TOKEN_KEY, password);
+      try {
+        await loadDevices();
+        loginBox.classList.add('hidden');
+        panel.classList.remove('hidden');
+        timer = setInterval(() => loadDevices().catch(error => statusText.textContent = error.message), 10000);
+      } catch (error) {
+        localStorage.removeItem(TOKEN_KEY);
+        loginError.textContent = error.message;
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem(TOKEN_KEY);
+      clearInterval(timer);
+      panel.classList.add('hidden');
+      loginBox.classList.remove('hidden');
+    }
+
+    document.getElementById('loginBtn').addEventListener('click', login);
+    document.getElementById('refreshBtn').addEventListener('click', () => loadDevices().catch(error => statusText.textContent = error.message));
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+    passwordInput.addEventListener('keydown', event => { if (event.key === 'Enter') login(); });
+
+    if (localStorage.getItem(TOKEN_KEY)) {
+      loginBox.classList.add('hidden');
+      panel.classList.remove('hidden');
+      loadDevices()
+        .then(() => { timer = setInterval(() => loadDevices().catch(error => statusText.textContent = error.message), 10000); })
+        .catch(() => logout());
+    }
+  </script>
+</body>
+</html>
